@@ -5,6 +5,8 @@ name = "pypi"
 
 [packages]
 django = "*"
+celery = "*"
+redis = "*"
 celery = {extras = ['redis'], version = "*"]
 redis = "*"
 
