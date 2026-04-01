@@ -25,7 +25,7 @@ SECRET_KEY = 'django-insecure-3ll4z7%dfe!zf2u4peld+7w(@fy=cj=di87d73tm&qjyssixv2
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["*"]
 
 
 # Application definition
@@ -37,7 +37,8 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'EntryPoint'
+    'EntryPoint',
+    
 ]
 
 MIDDLEWARE = [
@@ -117,3 +118,10 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+CELERY_BROKER_URL = 'redis://localhost:6379/0',
+CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = TIME_ZONE

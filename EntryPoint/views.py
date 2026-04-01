@@ -1,7 +1,7 @@
 import json
 from datetime import datetime
 from urllib import error, request as urllib_request
-
+from django.views.decorators.csrf import ensure_csrf_cookie
 from django.http import JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_POST
@@ -12,7 +12,7 @@ OPEN_FOOD_FACTS_URL = "https://world.openfoodfacts.org/api/v2/product/{barcode}.
 def splash(request):
     return render(request, "splash.html")
 
-
+@ensure_csrf_cookie 
 def main(request):
     return render(request, "main.html")
 
