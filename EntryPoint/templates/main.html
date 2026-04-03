@@ -179,6 +179,45 @@ function classifyIngredients(ingredientsText) {
             organic.push(ingredient);
             continue;
         }
+    }
+    return cookieValue;
+}
+
+async function parseResponse(response) {
+    const contentType = response.headers.get('content-type') || '';
+    const raw = await response.text();
+
+    if (contentType.includes('application/json')) {
+        try { return JSON.parse(raw); } catch { throw new Error('Invalid JSON response from server.'); }
+    }
+
+    if (!response.ok) {
+        if (raw.includes('CSRF') || response.status === 403) throw new Error('Request blocked by CSRF. Refresh page and try again.');
+        throw new Error(`Unexpected non-JSON response (${response.status}).`);
+    }
+
+    throw new Error('Server returned unexpected response format.');
+}
+
+function splitIngredients(ingredientsText) {
+    return String(ingredientsText || '')
+        .split(/,|;|\.|\(|\)/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+}
+
+function uniqueItems(items) {
+    return [...new Set(items.map((item) => item.toLowerCase()))].map(
+        (lower) => items.find((item) => item.toLowerCase() === lower)
+    );
+}
+
+function classifyIngredients(ingredientsText) {
+    const parts = splitIngredients(ingredientsText);
+
+    const organic = [];
+    const chemical = [];
+    const additive = [];
 
         if (/\be\d{3,4}\b/.test(value)) {
             additive.push(ingredient);
