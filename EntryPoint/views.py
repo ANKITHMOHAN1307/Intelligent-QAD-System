@@ -127,7 +127,7 @@ def analyze_barcode(request):
 
     product = result.get("product", {})
     if result.get("status") != 1 or not product:
-        task = task_status.delay()
+        task  = run_ocr_fallback()
         return JsonResponse(
             {
                 "status": "fallback",
