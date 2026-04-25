@@ -1,0 +1,8 @@
+django
+celery[redis]
+redis
+groq
+python-dotenv
+requests
+django-celery-results
+psycopg2-binary
