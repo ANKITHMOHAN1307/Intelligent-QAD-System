@@ -13,6 +13,8 @@ from .ocr_service import analyze_label_image
 
 from celery.result import AsyncResult
 
+OPEN_FOOD_FACTS_URL = "https://world.openfoodfacts.org/api/v2/product/{barcode}.json"
+
 
 # -----------------------------
 # BASIC PAGES

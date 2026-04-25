@@ -10,41 +10,43 @@
         <p>Scan barcode first using camera or upload. If barcode fails, OCR analysis will run automatically.</p>
     </header>
 
-    <section class="scan-grid">
-        <article class="card pop">
+       <section class="scan-grid">
+        <article class="card pop" aria-label="Live camera scanner">
             <h2>📷 Live Camera Scanner</h2>
             <div id="scanner" class="scanner-box"></div>
             <div class="actions">
-                <button id="startScanner" class="btn btn-primary">Start Scanner</button>
-                <button id="stopScanner" class="btn">Stop</button>
+                <button id="startScanner" class="btn btn-primary" type="button">Start Scanner</button>
+                <button id="stopScanner" class="btn" type="button">Stop</button>
             </div>
         </article>
 
-        <article class="card pop upload-card">
+        <article class="card pop upload-card" aria-label="Barcode image upload">
             <h2>🖼️ Upload Barcode Image</h2>
+            <label for="imageInput" class="small">Choose barcode image</label>
             <input type="file" id="imageInput" accept="image/*" />
 
             <div class="preview-box">
-                <img id="previewImage" style="display:none;" alt="Preview" />
+                <img id="previewImage" style="display:none;" alt="Uploaded barcode preview" />
                 <p id="previewPlaceholder" class="small">Image preview will appear here.</p>
             </div>
 
             <div class="actions">
-                <button id="decodeImageBtn" class="btn btn-secondary">Decode Uploaded Image</button>
-                <button id="clearBtn" class="btn">Clear</button>
+                <button id="decodeImageBtn" class="btn btn-secondary" type="button">Decode Uploaded Image</button>
+                <button id="clearBtn" class="btn" type="button">Clear</button>
             </div>
 
-            <p class="small">Tip: Upload a clear barcode image with good lighting.</p>
+            <p class="small">Tip: use a sharp, well-lit barcode image.</p>
         </article>
     </section>
 
-    <section class="card result-panel" id="resultPanel" style="display:none;">
+    <section class="card result-panel" id="resultPanel" style="display:none;" aria-live="polite">
         <h2 id="productName">Product Analysis</h2>
         <p id="brandName" class="small"></p>
 
         <div class="status-grid">
             <div class="pill" id="qualityPill"></div>
             <div class="pill" id="modePill"></div>
+            <div class="pill" id="expiryPill"></div>
         </div>
 
         <h3>Ingredients</h3>
@@ -67,7 +69,10 @@
         </div>
 
         <h3>Nutritional Composition</h3>
-        <canvas id="nutritionChart" height="120"></canvas>
+        <div class="chart-wrap">
+            <canvas id="nutritionChart" height="120" aria-label="Nutrition chart"></canvas>
+            <p id="chartFallback" class="small">No structured nutrition data available for chart.</p>
+        </div>
 
         <h3>OCR Extracted Text</h3>
         <pre id="ocrText" class="ocr-text">Not available</pre>
@@ -80,6 +85,26 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 let nutritionChart = null;
+let scannerRunning = false;
+
+const FLOW_IDS = ["stepUpload", "stepDecode", "stepApi", "stepFallback", "stepOcr", "stepResults"];
+
+function updateFlow(stepId, state) {
+    const el = document.getElementById(stepId);
+    if (!el) return;
+    el.classList.remove("active", "done", "warn");
+    el.classList.add(state);
+}
+
+function resetFlow() {
+    FLOW_IDS.forEach((id, index) => {
+        const step = document.getElementById(id);
+        step.classList.remove("active", "done", "warn");
+        if (index === 0) {
+            step.classList.add("active");
+        }
+    });
+}
 
 function showStatus(message, variant = "info") {
     const el = document.getElementById("statusMessage");
@@ -116,12 +141,137 @@ function showPreview(file) {
     placeholder.style.display = "none";
 }
 
+function toIngredientArray(rawIngredients) {
+    if (Array.isArray(rawIngredients)) return rawIngredients.map(item => String(item || "").trim()).filter(Boolean);
+    if (typeof rawIngredients === "string") {
+        return rawIngredients
+            .split(/[;,]/)
+            .map(item => item.trim())
+            .filter(Boolean);
+    }
+    return [];
+}
+
+function classifyIngredients(ingredients) {
+    const organicKeywords = ["milk", "wheat", "rice", "corn", "oat", "flour", "honey", "cocoa", "fruit", "vegetable", "salt", "water", "spice", "herb", "natural"];
+    const additiveKeywords = ["preservative", "stabilizer", "emulsifier", "flavor", "colour", "color", "benzoate", "sorbate", "nitrite", "nitrate", "sulphite", "sulfite", "e2", "e3"];
+    const chemicalKeywords = ["acid", "hydroxide", "phosphate", "chloride", "carbonate", "dioxide", "monosodium", "glutamate", "maltodextrin", "e1", "e4", "e5"];
+
+    const organic = [];
+    const additive = [];
+    const chemical = [];
+
+    ingredients.forEach((item) => {
+        const text = item.toLowerCase();
+
+        if (/\be\s?-?\d{3}[a-z]?\b/i.test(text) || additiveKeywords.some(key => text.includes(key))) {
+            additive.push(item);
+        } else if (chemicalKeywords.some(key => text.includes(key))) {
+            chemical.push(item);
+        } else if (organicKeywords.some(key => text.includes(key))) {
+            organic.push(item);
+        } else {
+            chemical.push(item);
+        }
+    });
+
+    return { organic, additive, chemical };
+}
+
+function renderIngredientLists(rawIngredients) {
+    const ingredients = toIngredientArray(rawIngredients);
+    const lists = classifyIngredients(ingredients);
+
+    const map = {
+        organicList: lists.organic,
+        chemicalList: lists.chemical,
+        additiveList: lists.additive,
+    };
+
+    Object.entries(map).forEach(([listId, values]) => {
+        const listEl = document.getElementById(listId);
+        listEl.innerHTML = "";
+
+        if (!values.length) {
+            listEl.innerHTML = "<li>Not detected</li>";
+            return;
+        }
+
+        values.forEach((value) => {
+            const li = document.createElement("li");
+            li.textContent = value;
+            listEl.appendChild(li);
+        });
+    });
+
+    document.getElementById("ingredients").textContent = ingredients.length ? ingredients.join(", ") : "Not available";
+}
+
+function toNumeric(value) {
+    if (value === null || value === undefined || value === "") return null;
+    const parsed = Number(String(value).replace(/[^0-9.\-]/g, ""));
+    return Number.isFinite(parsed) ? parsed : null;
+}
+
+function renderNutritionChart(data) {
+    const chartFallback = document.getElementById("chartFallback");
+    const nutrition = data.nutrition || data.nutrition_per_100g || {};
+    const metrics = [
+        ["Energy (kcal)", toNumeric(nutrition.energy_kcal_100g || nutrition.energy_kcal)],
+        ["Protein", toNumeric(nutrition.proteins_100g)],
+        ["Carbs", toNumeric(nutrition.carbohydrates_100g)],
+        ["Fat", toNumeric(nutrition.fat_100g)],
+        ["Sugar", toNumeric(nutrition.sugars_100g)],
+        ["Salt", toNumeric(nutrition.salt_100g)],
+        ["Fiber", toNumeric(nutrition.fiber_100g)],
+    ].filter(([, value]) => value !== null);
+
+    if (!metrics.length) {
+        chartFallback.style.display = "block";
+        if (nutritionChart) {
+            nutritionChart.destroy();
+            nutritionChart = null;
+        }
+        return;
+    }
+
+    chartFallback.style.display = "none";
+
+    const labels = metrics.map(([label]) => label);
+    const values = metrics.map(([, value]) => value);
+    const context = document.getElementById("nutritionChart").getContext("2d");
+
+    if (nutritionChart) nutritionChart.destroy();
+
+    nutritionChart = new Chart(context, {
+        type: "bar",
+        data: {
+            labels,
+            datasets: [{
+                label: "per 100g",
+                data: values,
+                borderWidth: 1,
+                backgroundColor: "rgba(59,130,246,0.55)",
+                borderColor: "rgba(37,99,235,1)",
+                borderRadius: 6,
+            }],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: true } },
+            scales: { y: { beginAtZero: true } },
+        },
+    });
+}
+
 function clearForm() {
     document.getElementById("imageInput").value = "";
     document.getElementById("previewImage").style.display = "none";
     document.getElementById("previewPlaceholder").style.display = "block";
     document.getElementById("resultPanel").style.display = "none";
     document.getElementById("statusMessage").className = "status";
+    resetFlow();
 }
 
 function handleOCRFallback(file) {
@@ -130,16 +280,16 @@ function handleOCRFallback(file) {
         return;
     }
 
-    showStatus("⏳ Barcode failed. Starting OCR analysis...", "info");
+    updateFlow("stepApi", "warn");
+    updateFlow("stepFallback", "active");
+    showStatus("⏳ Barcode failed. Opening OCR analysis...", "info");
 
     const formData = new FormData();
     formData.append("image", file, file.name || "label.jpg");
 
     fetch('{% url "analyze_ocr_label" %}', {
         method: "POST",
-        headers: {
-            "X-CSRFToken": getCookie("csrftoken")
-        },
+        headers: { "X-CSRFToken": getCookie("csrftoken") },
         body: formData
     })
     .then(response => response.json().then(data => ({ ok: response.ok, data })))
@@ -148,8 +298,13 @@ function handleOCRFallback(file) {
             throw new Error(data.message || "OCR analysis failed.");
         }
 
-        renderProductData(data);
+        updateFlow("stepFallback", "done");
+        updateFlow("stepOcr", "done");
+        updateFlow("stepResults", "done");
+
+        renderProductData(data, "OCR");
         showStatus("✅ OCR analysis completed successfully.", "success");
+        document.getElementById("resultPanel").scrollIntoView({ behavior: "smooth", block: "start" });
     })
     .catch(error => {
         showStatus(`❌ ${error.message}`, "error");
@@ -164,6 +319,8 @@ function analyzeBarcode(barcode, file = null) {
         return;
     }
 
+    updateFlow("stepDecode", "done");
+    updateFlow("stepApi", "active");
     showStatus(`Barcode detected: ${barcode}. Fetching product data...`, "info");
 
     fetch('{% url "analyze_barcode" %}', {
@@ -181,7 +338,9 @@ function analyzeBarcode(barcode, file = null) {
         }
 
         if (data.status === "success") {
-            renderProductData(data);
+            updateFlow("stepApi", "done");
+            updateFlow("stepResults", "done");
+            renderProductData(data, "Barcode");
             showStatus("✅ Product analysis completed.", "success");
         } else {
             handleOCRFallback(file);
@@ -192,23 +351,22 @@ function analyzeBarcode(barcode, file = null) {
     });
 }
 
-function renderProductData(data) {
+function renderProductData(data, sourceMode) {
     document.getElementById("resultPanel").style.display = "block";
     document.getElementById("productName").textContent = data.product_name || "OCR Label Analysis";
     document.getElementById("brandName").textContent = data.brand || "";
 
-    document.getElementById("ingredients").textContent =
-        Array.isArray(data.ingredients)
-            ? data.ingredients.join(", ")
-            : (data.ingredients || "Not available");
+    renderIngredientLists(data.ingredients);
+    renderNutritionChart(data);
 
     document.getElementById("ocrText").textContent = data.ocr_text || "Not available";
 
     document.getElementById("qualityPill").textContent =
         data.quality ? `Output: ${data.quality.quality}` : "Output: Available";
 
-    document.getElementById("modePill").textContent =
-        data.expiry ? `Mode: ${data.expiry.status}` : "Mode: Analysis";
+    document.getElementById("modePill").textContent = `Mode: ${sourceMode}`;
+    document.getElementById("expiryPill").textContent =
+        data.expiry ? `Expiry: ${data.expiry.status || "Unknown"}` : "Expiry: Unknown";
 }
 
 async function decodeUploadedImage() {
@@ -220,6 +378,8 @@ async function decodeUploadedImage() {
     }
 
     const file = fileInput.files[0];
+    updateFlow("stepUpload", "done");
+    updateFlow("stepDecode", "active");
     showStatus("Trying barcode detection...", "info");
 
     if (!window.Quagga) {
@@ -247,6 +407,46 @@ async function decodeUploadedImage() {
     });
 }
 
+function startScanner() {
+    if (!window.Quagga || scannerRunning) {
+        return;
+    }
+
+    updateFlow("stepUpload", "active");
+    Quagga.init({
+        inputStream: {
+            type: "LiveStream",
+            target: document.querySelector("#scanner"),
+            constraints: { facingMode: "environment" }
+        },
+        decoder: { readers: ["ean_reader", "upc_reader", "code_128_reader"] }
+    }, function(err) {
+        if (err) {
+            showStatus("❌ Camera scanner could not start.", "error");
+            return;
+        }
+
+        scannerRunning = true;
+        Quagga.start();
+        showStatus("📷 Scanner started. Point camera at barcode.", "info");
+    });
+
+    Quagga.offDetected();
+    Quagga.onDetected((result) => {
+        if (!result || !result.codeResult || !result.codeResult.code) return;
+        stopScanner();
+        analyzeBarcode(result.codeResult.code, null);
+    });
+}
+
+function stopScanner() {
+    if (window.Quagga && scannerRunning) {
+        Quagga.stop();
+        scannerRunning = false;
+        showStatus("Scanner stopped.", "info");
+    }
+}
+
 document.getElementById("imageInput").addEventListener("change", function(e) {
     const file = e.target.files[0];
     if (file) showPreview(file);
@@ -254,5 +454,7 @@ document.getElementById("imageInput").addEventListener("change", function(e) {
 
 document.getElementById("decodeImageBtn").addEventListener("click", decodeUploadedImage);
 document.getElementById("clearBtn").addEventListener("click", clearForm);
+document.getElementById("startScanner").addEventListener("click", startScanner);
+document.getElementById("stopScanner").addEventListener("click", stopScanner);
 </script>
 {% endblock %}
