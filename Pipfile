@@ -4,7 +4,6 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-django = "*"
 celery = {extras = ["redis"], version = "*"}
 redis = "*"
 groq = "*"
@@ -12,6 +11,7 @@ python-dotenv = "*"
 requests = "*"
 psycopg2-binary = "*"
 django-celery-results = "*"
+django = "*"
 
 [dev-packages]
 
