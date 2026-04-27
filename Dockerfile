@@ -31,4 +31,5 @@ COPY . .
 EXPOSE 8000
 
 # Start Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:8000", "MainFolder.wsgi:application"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--timeout", "600", "MainFolder.wsgi:application"]
+# foodscannerR98xmTe8rK8uzWc
