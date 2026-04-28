@@ -82,10 +82,15 @@
 </div>
 
 <script src="https://unpkg.com/quagga@0.12.1/dist/quagga.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
 let nutritionChart = null;
 let scannerRunning = false;
+let chartLibraryReady = false;
+
+const CHART_JS_SOURCES = [
+    "https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js",
+    "https://unpkg.com/chart.js@4.4.3/dist/chart.umd.min.js",
+];
 
 const FLOW_IDS = ["stepUpload", "stepDecode", "stepApi", "stepFallback", "stepOcr", "stepResults"];
 
@@ -212,18 +217,64 @@ function toNumeric(value) {
     const parsed = Number(String(value).replace(/[^0-9.\-]/g, ""));
     return Number.isFinite(parsed) ? parsed : null;
 }
+function pickFirstNumeric(...values) {
+    for (const value of values) {
+        const parsed = toNumeric(value);
+        if (parsed !== null) return parsed;
+    }
+    return null;
+}
 
-function renderNutritionChart(data) {
+function loadScript(url) {
+    return new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = url;
+        script.async = true;
+        script.onload = () => resolve(url);
+        script.onerror = () => reject(new Error(`Failed to load ${url}`));
+        document.head.appendChild(script);
+    });
+}
+
+async function ensureChartLibrary() {
+    if (window.Chart) {
+        chartLibraryReady = true;
+        return true;
+    }
+
+    for (const url of CHART_JS_SOURCES) {
+        try {
+            await loadScript(url);
+            if (window.Chart) {
+                chartLibraryReady = true;
+                return true;
+            }
+        } catch (error) {
+            // Try next source.
+        }
+    }
+
+    chartLibraryReady = false;
+    return false;
+}
+
+async function renderNutritionChart(data) {
     const chartFallback = document.getElementById("chartFallback");
     const nutrition = data.nutrition || data.nutrition_per_100g || {};
+    const nutrientMap = Array.isArray(data.ocr_nutrients) ? data.ocr_nutrients.reduce((acc, item) => {
+        const key = String(item.name || "").toLowerCase().trim();
+        if (!key) return acc;
+        acc[key] = item.value;
+        return acc;
+    }, {}) : {};
     const metrics = [
-        ["Energy (kcal)", toNumeric(nutrition.energy_kcal_100g || nutrition.energy_kcal)],
-        ["Protein", toNumeric(nutrition.proteins_100g)],
-        ["Carbs", toNumeric(nutrition.carbohydrates_100g)],
-        ["Fat", toNumeric(nutrition.fat_100g)],
-        ["Sugar", toNumeric(nutrition.sugars_100g)],
-        ["Salt", toNumeric(nutrition.salt_100g)],
-        ["Fiber", toNumeric(nutrition.fiber_100g)],
+    ["Energy (kcal)", pickFirstNumeric(nutrition.energy_kcal_100g, nutrition.energy_kcal, nutrition.energy, nutrientMap.energy)],
+        ["Protein", pickFirstNumeric(nutrition.proteins_100g, nutrition.protein, nutrientMap.protein)],
+        ["Carbs", pickFirstNumeric(nutrition.carbohydrates_100g, nutrition.carbohydrates, nutrientMap.carbohydrates)],
+        ["Fat", pickFirstNumeric(nutrition.fat_100g, nutrition.fat, nutrition.total_fat, nutrientMap.total_fat, nutrientMap.fat)],
+        ["Sugar", pickFirstNumeric(nutrition.sugars_100g, nutrition.sugars, nutrition.total_sugars, nutrientMap.total_sugars, nutrientMap.sugars)],
+        ["Salt", pickFirstNumeric(nutrition.salt_100g, nutrition.salt, nutrition.sodium, nutrientMap.sodium)],
+        ["Fiber", pickFirstNumeric(nutrition.fiber_100g, nutrition.fiber, nutrition.fibre, nutrition.dietary_fiber, nutrientMap.dietary_fiber, nutrientMap.fiber)],
     ].filter(([, value]) => value !== null);
 
     if (!metrics.length) {
@@ -236,6 +287,14 @@ function renderNutritionChart(data) {
     }
 
     chartFallback.style.display = "none";
+    const chartReady = await ensureChartLibrary();
+    if (!chartReady) {
+        chartFallback.textContent = "Chart library could not be loaded. Nutritional chart is unavailable right now.";
+        chartFallback.style.display = "block";
+        return;
+    }
+
+    chartFallback.textContent = "No structured nutrition data available for chart.";
 
     const labels = metrics.map(([label]) => label);
     const values = metrics.map(([, value]) => value);
@@ -334,6 +393,12 @@ function analyzeBarcode(barcode, file = null) {
     .then(response => response.json().then(data => ({ ok: response.ok, data })))
     .then(({ ok, data }) => {
         if (!ok) {
+            if (data.code === "lookup_unavailable") {
+                updateFlow("stepApi", "warn");
+                updateFlow("stepResults", "done");
+                showStatus(`⚠️ Barcode decoded (${barcode}), but lookup service is unavailable. ${data.message}`, "error");
+                return;
+            }
             throw new Error(data.message || "Server error");
         }
 
@@ -342,12 +407,19 @@ function analyzeBarcode(barcode, file = null) {
             updateFlow("stepResults", "done");
             renderProductData(data, "Barcode");
             showStatus("✅ Product analysis completed.", "success");
-        } else {
+        } else if (data.status === "not_found" && file) {
             handleOCRFallback(file);
+        } else if (data.status === "not_found") {
+            updateFlow("stepApi", "warn");
+            showStatus(`⚠️ Barcode decoded (${barcode}) but no product record was found.`, "error");
         }
     })
-    .catch(() => {
-        handleOCRFallback(file);
+    .catch((err) => {
+        if (file) {
+            handleOCRFallback(file);
+            return;
+        }
+        showStatus(`❌ ${err.message || "Barcode lookup failed."}`, "error");
     });
 }
 
@@ -456,5 +528,6 @@ document.getElementById("decodeImageBtn").addEventListener("click", decodeUpload
 document.getElementById("clearBtn").addEventListener("click", clearForm);
 document.getElementById("startScanner").addEventListener("click", startScanner);
 document.getElementById("stopScanner").addEventListener("click", stopScanner);
+ensureChartLibrary();
 </script>
 {% endblock %}
