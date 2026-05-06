@@ -120,26 +120,23 @@ def analyze_barcode(request):
         with urllib_request.urlopen(OPEN_FOOD_FACTS_URL.format(barcode=barcode), timeout=12) as response:
             result = json.loads(response.read().decode("utf-8"))
     except (error.HTTPError, error.URLError, TimeoutError, json.JSONDecodeError):
-        task = run_ocr_fallback.delay()
         return JsonResponse(
             {
-                "status": "fallback",
-                "message": "Unable to fetch product details; OCR task queued.",
-                "task_id": task.id,
+                "status": "lookup_unavailable",
+                "message": "Unable to fetch product details from Open Food Facts.",
+                "code": "lookup_unavailable",
             },
-            status=202,
+            status=503,
         )
 
     product = result.get("product", {})
     if result.get("status") != 1 or not product:
-        task  = run_ocr_fallback()
         return JsonResponse(
             {
-                "status": "fallback",
-                "message": "NO Product Data found in barcode response ; OCR task queued",
-                "task_id": task.id,
+                "status": "not_found",
+                "message": "No product data found for this barcode.",
             },
-            status=202,
+            status=404,
         )
 
     nutriments = product.get("nutriments") or {}

@@ -460,23 +460,35 @@ async function decodeUploadedImage() {
     }
 
     const imageUrl = URL.createObjectURL(file);
+    const decodeConfigAttempts = [
+        { locate: true, readers: ["ean_reader", "ean_8_reader", "upc_reader", "code_128_reader"] },
+        { locate: false, readers: ["ean_reader", "ean_8_reader", "upc_reader", "code_128_reader", "code_39_reader"] },
+    ];
 
-    Quagga.decodeSingle({
-        src: imageUrl,
-        numOfWorkers: 0,
-        locate: true,
-        decoder: {
-            readers: ["ean_reader", "upc_reader", "code_128_reader"]
-        }
-    }, function(result) {
-        URL.revokeObjectURL(imageUrl);
-
-        if (result && result.codeResult) {
-            analyzeBarcode(result.codeResult.code, file);
-        } else {
-            handleOCRFallback(file);
-        }
+    const decodeOnce = (config) => new Promise((resolve) => {
+        Quagga.decodeSingle({
+            src: imageUrl,
+            numOfWorkers: 0,
+            locate: config.locate,
+            decoder: { readers: config.readers }
+        }, resolve);
     });
+    let detectedCode = null;
+    for (const config of decodeConfigAttempts) {
+        const result = await decodeOnce(config);
+        if (result && result.codeResult && result.codeResult.code) {
+            detectedCode = result.codeResult.code;
+            break;
+
+        }
+    }
+    URL.revokeObjectURL(imageUrl);
+
+if (detectedCode) {
+    analyzeBarcode(detectedCode, file);
+} else {
+    handleOCRFallback(file);
+}
 }
 
 function startScanner() {
